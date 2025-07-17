@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <!-- PWA Meta Tags -->
+    <meta charset="UTF-8" />
+  <title>Suivi Biolines – SIS Roussillon</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#b41616">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Suivi Biolines">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="icon-192.png">
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <style>
+
+    body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f5f5f5;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+    #top-menu {
+      background: #b41616;
+      color: white;
+      padding: 10px 20px;
+      user-select: none;
+      text-align: left;
+    }
+
+    h1 {
+      margin: 0 0 15px;
+    }
+
+    .button-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+    .btn {
+  flex: 1 1 30%;
+  min-width: 100px;
+  font-size: 16px;
+  padding: 16px 10px;
+  border-radius: 50px;
+}
+
+    .gris {
+      background-color: #ccc;
+      color: black;
+    }
+
+    .vert.dark {
+      background-color: #1f801f !important;
+      color: black !important;
+    }
+
+    .surplace {
+      background-color: red !important;
+      color: black !important;
+    }
+
+    .indispo {
+      background-color: black !important;
+      color: white !important;
+    }
+
+    .manoeuvre {
+      background-color: purple !important;
+      color: black !important;
+    }
+
+    #context-menu {
+      position: fixed;
+      background: white;
+      border: 1px solid #ccc;
+      box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+      display: none;
+      z-index: 20000;
+      min-width: 140px;
+      font-size: 14px;
+    }
+
+    #context-menu div {
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    #context-menu div:hover {
+      background-color: #eee;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="top-menu">
+    <h1>Suivi Biolines – SIS Roussillon</h1>
+  </div>
+
+  <div>
+    <p class="categorie" style="text-align:center; font-weight:bold; margin-top:20px;">01 - BIOLINES RON</p>
+    <div class="button-container" id="biolines-ron"></div>
+
+    <p class="categorie" style="text-align:center; font-weight:bold; margin-top:20px;">02 - BIOLINES ELKEM</p>
+    <div class="button-container" id="biolines-elkem"></div>
+  </div>
+
+  <div id="context-menu">
+    <div data-action="livraison">Livraison</div>
+    <div data-action="indispo">Indisponible</div>
+    <div data-action="manoeuvre">Autre</div>
+    <div data-action="disponible" id="disponible-option" class="hidden">Disponible</div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyB1GhGT7hLqmrErOiQRaA7A_T9E_UntNz4",
+      authDomain: "sis-osiris.firebaseapp.com",
+      databaseURL: "https://sis-osiris-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "sis-osiris",
+      storageBucket: "sis-osiris.firebasedestorage.app",
+      messagingSenderId: "671818242126",
+      appId: "1:671818242126:web:9ffc48ec96fdc69ff10b1f"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const contextMenu = document.getElementById("context-menu");
+    const dispoOption = document.getElementById("disponible-option");
+    let currentButtonRef = null;
+    let currentButton = null;
+    let justSetTo1 = false;
+
+    function updateButtonClass(button, val) {
+      button.classList.remove("vert", "dark", "gris", "indispo", "manoeuvre", "surplace");
+      if (val === 1) {
+        button.classList.add("vert", "dark");
+      } else if (val === 4) {
+        button.classList.add("surplace");
+      } else if (val === 11) {
+        button.classList.add("indispo");
+      } else if (val === 12) {
+        button.classList.add("manoeuvre");
+      } else {
+        button.classList.add("gris");
+      }
+    }
+
+    function formatDateTime(date) {
+      const pad = (n) => n.toString().padStart(2, "0");
+      return date.getFullYear() + "-" +
+        pad(date.getMonth() + 1) + "-" +
+        pad(date.getDate()) + " " +
+        pad(date.getHours()) + ":" +
+        pad(date.getMinutes());
+    }
+
+    function createBiolineButtons(parentId, count, basePath) {
+      const container = document.getElementById(parentId);
+      for(let i = 1; i <= count; i++) {
+        const num = i.toString().padStart(2, "0");
+        const nom = `BIOLINE ${num}`;
+        const fullRef = `${basePath}/${nom}`;
+
+        const button = document.createElement("button");
+        button.className = "btn gris";
+        button.textContent = nom;
+        button.dataset.ref = fullRef;
+        button.title = "";
+        container.appendChild(button);
+
+        const ref = db.ref(fullRef);
+
+        ref.on("value", snapshot => {
+          const data = snapshot.val();
+          let statut = 0;
+          let tooltipText = "";
+          if (data) {
+            statut = data.statut || 0;
+            if (data.livraison) {
+              const l = data.livraison;
+              tooltipText =
+                `Livrée à : ${l.livreeA || ""}\n` +
+                `Par : ${l.par || ""}\n` +
+                `Le : ${l.le || ""}`;
+            }
+            if (data.indispo) {
+              const i = data.indispo;
+              tooltipText =
+                `Cause de l'indisponibilité : ${i.cause || ""}\n` +
+                `Relevé par : ${i.par || ""}\n` +
+                `Le : ${i.le || ""}`;
+            }
+          }
+          updateButtonClass(button, statut);
+          button.title = tooltipText;
+        });
+
+        // Remplace clic droit par clic gauche
+        button.addEventListener("click", async e => {
+          e.preventDefault();
+
+          const snap = await ref.get();
+          const data = snap.val() || {};
+
+          currentButtonRef = ref;
+          currentButton = button;
+
+          // Si pas encore à 1, on le met à 1 et marque qu'on vient de le faire
+          if (data.statut !== 1) {
+            await ref.set({ ...data, statut: 1 });
+            justSetTo1 = true;
+          } if (data.statut !== 0) {
+            await ref.set({ ...data, statut: 1 }); // Rebasculer à 0
+          }
+          // Affiche ou non le bouton "Disponible"
+          if ([1, 4, 11, 12].includes(data.statut)) {
+            dispoOption.classList.remove("hidden");
+          } else {
+            dispoOption.classList.add("hidden");
+          }
+
+          contextMenu.style.top = e.clientY + "px";
+          contextMenu.style.left = e.clientX + "px";
+          contextMenu.style.display = "block";
+        });
+      }
+    }
+
+    createBiolineButtons("biolines-ron", 9, "biolines/ron");
+    createBiolineButtons("biolines-elkem", 3, "biolines/elkem");
+
+    contextMenu.querySelectorAll("div").forEach(item => {
+      item.addEventListener("click", async () => {
+        const action = item.dataset.action;
+        if (!currentButtonRef) {
+          contextMenu.style.display = "none";
+          return;
+        }
+
+        justSetTo1 = false;
+
+        if (action === "livraison") {
+          const livreeA = prompt("Livrée à :");
+          if (livreeA === null) return contextMenu.style.display = "none";
+          const par = prompt("Par :");
+          if (par === null) return contextMenu.style.display = "none";
+          const nowStr = formatDateTime(new Date());
+          const le = prompt("Le (format AAAA-MM-JJ HH:mm) :", nowStr);
+          if (le === null) return contextMenu.style.display = "none";
+
+          await currentButtonRef.set({
+            statut: 4,
+            livraison: { livreeA: livreeA.trim(), par: par.trim(), le: le.trim() }
+          });
+
+        } else if (action === "indispo") {
+          const cause = prompt("Cause de l'indisponibilité :");
+          if (cause === null) return;
+          const par = prompt("Indisponibilité relevée par :");
+          if (par === null) return;
+          const le = prompt("Relevée le :", formatDateTime(new Date()));
+          if (le === null) return;
+
+          await currentButtonRef.set({
+            statut: 11,
+            indispo: { cause, par, le }
+          });
+
+        } else if (action === "manoeuvre") {
+          await currentButtonRef.set({ statut: 12 });
+
+        } else if (action === "disponible") {
+          await currentButtonRef.set({ statut: 0 });
+        }
+
+        contextMenu.style.display = "none";
+      });
+    });
+
+    window.addEventListener("click", async e => {
+      if (!contextMenu.contains(e.target)) {
+        contextMenu.style.display = "none";
+
+        // Si le bouton était juste passé à 1 et qu’aucune action n’a été choisie
+        if (justSetTo1 && currentButtonRef) {
+          await currentButtonRef.set({ statut: 0 });
+        }
+
+        justSetTo1 = false;
+      }
+
+      if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("service-worker.js")
+    .then(() => console.log("✅ Service Worker enregistré"))
+    .catch(e => console.error("Erreur SW", e));
+}
+
+    });
+  </script>
+
+</body>
+</html>
